@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  meshstats-api:
+    build: ./backend
+    container_name: meshstats-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - /volume1/@docker/volumes/meshmonitor_meshmonitor-data/_data/meshmonitor.db:/data/meshmonitor.db:ro
+    environment:
+      - DB_PATH=/data/meshmonitor.db
+
+  meshstats-ui:
+    build: ./frontend
+    container_name: meshstats-ui
+    restart: unless-stopped
+    ports:
+      - "8082:80"
+    depends_on:
+      - meshstats-api
