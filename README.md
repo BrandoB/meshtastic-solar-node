@@ -102,8 +102,8 @@ General:
 |---|---|
 | Region | US |
 | Modem Preset | MediumFast |
-| Channel | 17 |
-| TX Power | 22 dBm |
+| Channel | 18 |
+| TX Power | 30 dBm |
 | Role | Client |
 | Hop Limit | 3 |
 
@@ -353,7 +353,7 @@ This node participates in the [Arizona Meshtastic Community AZMSH](https://azmsh
 | Position Broadcast | Every 12 to 24 hours stationary |
 | Telemetry | Every 4 to 6 hours |
 | MQTT Downlink | Disabled on primary channel |
-
+| MQTT Uplink | Enabled |
 ---
 
 ## Pi System Configuration
