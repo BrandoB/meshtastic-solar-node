@@ -24,12 +24,17 @@ A fully solar-powered outdoor Meshtastic node using a Raspberry Pi 5 and MeshAdv
 | Meshtastic Radio Hat | MeshAdv Pi Hat V1.1 (1W LoRa, E22-900M30S) |
 | PoE Hat | Waveshare PoE Hat (F) — 802.3af/at |
 | Solar Charge Controller | Tycon Systems TP-SCPOE1248 |
-| Solar Panel | 18V 25W |
-| Battery | 12V 10Ah LiFePO4 with integrated BMS |
+| Solar Panel | ECO-WORTHY 18V 25W Monocrystalline |
+| Solar Panel Mount | SRNETKJ Adjustable Tilt Brackets — ⚠️ panel + mount is heavy, take caution when opening enclosure door |
+| Battery | Nermak 12V 10Ah LiFePO4 with integrated BMS |
 | PoE Injector (passive) | Linovision Gigabit 90W Passive PoE Injector |
 | PoE Injector (active) | PoE Texas DC-Powered PoE+ 30W (12-60V in to 802.3at out) |
+| Enclosure | Namunanee 13" x 9.2" x 5.6" ABS Outdoor Junction Box |
+| Waterproof Ethernet | CNLINKO YM-20 IP68 RJ45 Panel Mount Connector |
+| Cooling Fan | Wathai IP67 80mm 12V (2-pack) — wired direct to battery, always-on. One installed, one spare for AZ summer. Enclosure bottom cut to fit, all holes sealed with silicone |
 | Antenna | Slinkdsco Waterproof 5.8dBi Fiberglass 915MHz N-Male |
-| GPS Module | ATGM336H (onboard MeshAdv Pi Hat) |
+| GPS Module | Teyleten ATGM336H GPS+BDS (2-pack, one used) |
+| Standoffs | Geekworm M2.5 Brass Standoffs/Screws/Nuts Kit |
 | Router | Netgear RS700 |
 
 ### Stacking Note
