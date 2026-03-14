@@ -1,6 +1,18 @@
-# Meshtastic Solar Node + MeshStats Dashboard
+# Meshtastic Solar Node — Full Build Guide
 
-A fully solar-powered outdoor Meshtastic node build using a Raspberry Pi 5 and MeshAdv Pi Hat, with a live network statistics dashboard backed by MeshMonitor running on a Synology NAS.
+A fully solar-powered outdoor Meshtastic node using a Raspberry Pi 5 and MeshAdv Pi Hat, with a live network statistics dashboard, GPS-disciplined NTP server, and MeshMonitor integration running on a Synology NAS.
+
+---
+
+## Table of Contents
+
+1. [Hardware](#hardware)
+2. [Meshtasticd Configuration](#meshtasticd-configuration)
+3. [GPS & NTP Server](#gps--ntp-server)
+4. [MeshMonitor Integration](#meshmonitor-integration)
+5. [MeshStats Dashboard](#meshstats-dashboard)
+6. [AZMSH Network](#azmsh-network)
+7. [Pi System Configuration](#pi-system-configuration)
 
 ---
 
@@ -9,183 +21,287 @@ A fully solar-powered outdoor Meshtastic node build using a Raspberry Pi 5 and M
 | Component | Part |
 |---|---|
 | SBC | Raspberry Pi 5 |
-| Meshtastic Radio Hat | MeshAdv Pi Hat (1W LoRa) |
-| PoE Hat | Waveshare PoE Hat (F) |
+| Meshtastic Radio Hat | MeshAdv Pi Hat V1.1 (1W LoRa, E22-900M30S) |
+| PoE Hat | Waveshare PoE Hat (F) — 802.3af/at |
 | Solar Charge Controller | Tycon Systems TP-SCPOE1248 |
 | Solar Panel | 18V 25W |
 | Battery | 12V 10Ah LiFePO4 with integrated BMS |
-| PoE Injector (power) | Linovision Gigabit 90W Passive PoE Injector |
-| PoE Injector (inline) | PoE Texas DC-Powered PoE+ 30W Gigabit Inline Injector (12-60V in → 802.3at out) |
+| PoE Injector (passive) | Linovision Gigabit 90W Passive PoE Injector |
+| PoE Injector (active) | PoE Texas DC-Powered PoE+ 30W (12-60V in to 802.3at out) |
 | Antenna | Slinkdsco Waterproof 5.8dBi Fiberglass 915MHz N-Male |
+| GPS Module | ATGM336H (onboard MeshAdv Pi Hat) |
 | Router | Netgear RS700 |
 
----
+### Stacking Note
 
-## Network Architecture
-
-```
-Netgear RS700 (gigabit)
-    └── Linovision 90W Passive PoE Injector
-            └── Tycon TP-SCPOE1248 (solar charge controller / 100Mb switch)
-                    ├── 18V 25W Solar Panel
-                    ├── 12V 10Ah LiFePO4 Battery
-                    └── PoE Texas Inline Injector (12V DC in → 802.3at PoE+ out)
-                            └── Raspberry Pi 5 + Waveshare PoE Hat + MeshAdv Pi Hat
-```
-
-The Tycon unit handles solar charge management and battery maintenance. The PoE Texas injector converts the Tycon's 12V DC output into IEEE 802.3at PoE+ to power the Pi.
+When stacking the Waveshare PoE Hat beneath the MeshAdv Pi Hat, use a **2x20 tall stacking header (11mm or 15mm pin length)** to ensure GPIO pins fully seat through both PCBs. Short pins that do not make contact will silently break the GPS PPS signal on GPIO 23 and other connections.
 
 ---
 
-## Known Issue: Ethernet Autonegotiation
+## Meshtasticd Configuration
 
-### Problem
+The MeshAdv Pi Hat runs [meshtasticd](https://meshtastic.org/docs/hardware/devices/linux-native-hardware/) — the Linux-native Meshtastic daemon.
 
-The Tycon TP-SCPOE1248 is a **100Mb switch**. The Raspberry Pi 5's BCM54213PE gigabit NIC will not autonegotiate down to 100Mb through the PoE chain, resulting in:
-
-- `Link detected: no` in `ethtool`
-- Speed: Unknown / Duplex: Unknown
-- No IP address assigned
-
-### Fix
-
-Force `eth0` to 100Mb/s Full duplex with autonegotiation disabled. On the Pi:
+### Install
 
 ```bash
-sudo ip link set eth0 down
-sudo ethtool -s eth0 speed 100 duplex full autoneg off
-sudo ip link set eth0 up
+sudo apt update
+sudo apt install meshtasticd
 ```
 
-Verify the fix:
-```bash
-ethtool eth0 | grep -E "Speed|Duplex|Link"
-```
-
-Expected output:
-```
-Speed: 100Mb/s
-Duplex: Full
-Link detected: yes
-```
-
-### Making It Persistent
-
-The setting is managed by NetworkManager via netplan on Raspberry Pi OS. Set it through the desktop Network Manager GUI (right-click the network icon → Edit Connections → Ethernet → Speed/Duplex). The setting is written to `/etc/netplan/*.yaml` as:
+### /etc/meshtasticd/config.yaml
 
 ```yaml
-networkmanager:
-  passthrough:
-    ethernet.duplex: "full"
-    ethernet.speed: "100"
+Lora:
+  Module: sx1262
+  CS: 21
+  IRQ: 16
+  Busy: 20
+  Reset: 18
+  TXen: 13
+  RXen: 12
+  DIO3_TCXO_VOLTAGE: true
+
+GPS:
+  SerialPath: /dev/ttyAMA0
+
+I2C:
+  I2CDevice: /dev/i2c-1
+
+Logging:
+  LogLevel: info
+
+Webserver:
+  Port: 443
+  RootPath: /usr/share/meshtasticd/web
+
+General:
+  MaxNodes: 200
 ```
 
-Alternatively, create a systemd service to apply it on every boot:
+### MeshAdv Pi Hat GPIO Pin Mapping
+
+| Physical Pin | GPIO | Function |
+|---|---|---|
+| 8 | 14 | GPS UART TX to GPS RX |
+| 10 | 15 | GPS UART RX from GPS TX |
+| 12 | 18 | LoRa RST |
+| 16 | 23 | GPS PPS output |
+| 19 | 10 | LoRa SPI MOSI |
+| 21 | 9 | LoRa SPI MISO |
+| 23 | 11 | LoRa SPI CLK |
+| 32 | 12 | LoRa RXEN |
+| 33 | 13 | LoRa TXEN |
+| 36 | 16 | LoRa IRQ |
+| 38 | 20 | LoRa BUSY |
+| 40 | 21 | LoRa NSS |
+
+### Radio Settings
+
+| Setting | Value |
+|---|---|
+| Region | US |
+| Modem Preset | MediumFast |
+| Channel | 17 |
+| TX Power | 22 dBm |
+| Role | Client |
+| Hop Limit | 3 |
+
+### Enable and Start
 
 ```bash
-sudo nano /etc/systemd/system/eth0-force-100mb.service
-```
-
-```ini
-[Unit]
-Description=Force eth0 to 100Mb full duplex
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/sbin/ethtool -s eth0 speed 100 duplex full autoneg off
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable eth0-force-100mb.service
-sudo systemctl start eth0-force-100mb.service
+sudo systemctl enable meshtasticd
+sudo systemctl start meshtasticd
+sudo journalctl -u meshtasticd -f
 ```
 
 ---
 
-## Software Stack
+## GPS and NTP Server
 
-| Software | Host | Purpose |
+The ATGM336H GPS module outputs a hardware PPS signal on GPIO 23 once it has a satellite fix. This disciplines a local NTP server to GPS time making the Pi a **Stratum 1 NTP server** with approximately 35 nanosecond accuracy.
+
+### How It Works
+
+```
+ATGM336H GPS module
+├── NMEA sentences → /dev/ttyAMA0 → gpsd → chrony SHM 0
+└── PPS pulse 1Hz → GPIO 23 pin 16 → /dev/pps0 → chrony PPS refclock → NTP clients
+```
+
+### Step 1 — Enable PPS GPIO overlay
+
+Add to /boot/firmware/config.txt:
+
+```
+dtoverlay=pps-gpio,gpiopin=23
+```
+
+Reboot and verify:
+
+```bash
+ls /dev/pps0
+gpioinfo | grep "GPIO23"
+# expected: consumer="pps@17"
+```
+
+### Step 2 — Install packages
+
+```bash
+sudo apt install gpsd gpsd-clients pps-tools chrony
+```
+
+### Step 3 — Configure gpsd
+
+/etc/default/gpsd:
+
+```
+START_DAEMON="true"
+USBAUTO="false"
+DEVICES="/dev/ttyAMA0 /dev/pps0"
+GPSD_OPTIONS="-n -b"
+GPSD_SOCKET="/var/run/gpsd.sock"
+```
+
+The -b flag prevents gpsd from switching the ATGM336H into u-blox binary mode. The -n flag starts polling immediately without waiting for a client.
+
+### Step 4 — Configure chrony
+
+Add to the top of /etc/chrony/chrony.conf above existing pool lines:
+
+```
+refclock SHM 0 refid NMEA precision 1e-1 offset 0.0 noselect
+refclock PPS /dev/pps0 refid PPS lock NMEA precision 1e-7
+allow 192.168.1.0/24
+```
+
+### Step 5 — Enable services
+
+```bash
+sudo systemctl enable gpsd gpsd.socket chrony
+sudo systemctl start gpsd.socket gpsd
+sudo systemctl restart chrony
+```
+
+### Verify
+
+```bash
+sudo ppstest /dev/pps0
+chronyc sources -v
+chronyc tracking
+```
+
+Expected chronyc tracking output when fully locked:
+
+```
+Reference ID    : 50505300 (PPS)
+Stratum         : 1
+System time     : 0.000000035 seconds fast of NTP time
+Skew            : 0.004 ppm
+Root delay      : 0.000000001 seconds
+```
+
+### Point Your Router at the Pi
+
+On Netgear RS700: Advanced → Administration → NTP Settings → Set your preferred NTP server → enter the Pi IP.
+
+Verify from Windows:
+
+```powershell
+w32tm /stripchart /computer:YOUR_PI_IP /samples:5 /dataonly
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
 |---|---|---|
-| Meshtastic | Pi 5 (MeshAdv Hat) | LoRa mesh radio |
-| MeshMonitor | Synology NAS (Docker) | Node monitoring, packet logging, messaging |
-| MeshStats API | Synology NAS (Docker) | FastAPI backend querying MeshMonitor SQLite DB |
-| MeshStats UI | Synology NAS (Docker) | Live dashboard served via nginx |
+| /dev/pps0 missing | Overlay not loaded | Check /boot/firmware/config.txt and reboot |
+| ppstest times out | No GPS fix or broken PPS trace | Wait for fix, test pin 16 with multimeter in DC volts mode |
+| chrony NMEA/PPS show ? | gpsd not running | Check systemctl status gpsd and /etc/default/gpsd |
+| gpsd shows devices empty | Serial port held by another process | sudo fuser /dev/ttyAMA0 |
+| gpsd in binary mode | Missing -b flag | Add -b to GPSD_OPTIONS |
+| PPS claimed but no edges | Pi 5 GPIO issue | Verify gpioinfo shows consumer=pps@17 on GPIO 23 |
+
+---
+
+## MeshMonitor Integration
+
+[MeshMonitor](https://github.com/Yeraze/meshmonitor) runs on a Synology NAS in Docker and connects to meshtasticd over TCP to log all packets, nodes, messages, and telemetry to a SQLite database.
+
+### docker-compose.yml
+
+Place at /volume1/docker/meshmonitor/docker-compose.yml:
+
+```yaml
+version: "3.8"
+services:
+  meshmonitor:
+    image: yeraze/meshmonitor:latest
+    container_name: meshmonitor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - meshmonitor-data:/data
+    environment:
+      - MESHTASTIC_HOST=YOUR_PI_IP
+      - MESHTASTIC_PORT=4403
+
+volumes:
+  meshmonitor-data:
+```
+
+```bash
+cd /volume1/docker/meshmonitor
+docker-compose up -d
+```
+
+Access at http://YOUR_NAS_IP:8080
+
+### Database Location
+
+```
+/volume1/@docker/volumes/meshmonitor_meshmonitor-data/_data/meshmonitor.db
+```
 
 ---
 
 ## MeshStats Dashboard
 
-A live statistics dashboard that reads directly from the MeshMonitor SQLite database and presents it in a browser UI with auto-refresh every 60 seconds.
+A live statistics dashboard that reads directly from the MeshMonitor SQLite database. Auto-refreshes every 60 seconds.
 
 ### Features
 
-- Summary stats: total nodes, active nodes (30m / 24h), direct links, avg SNR, packet count, message count
-- Node table: sortable by packets, SNR, RSSI, last heard, hops — with battery indicators, channel utilization, and hop distance badges
-- Packet tab: packet type breakdown with signal quality per type
-- Activity tab: hourly traffic chart (last 24h, local time), top nodes leaderboard, SNR health distribution
+- Summary stats: total nodes, active nodes 30m and 24h, direct links, avg SNR, total packets, messages
+- Nodes tab: sortable by packets, SNR, RSSI, last heard, hops with battery indicators and channel utilization badges
+- Packets tab: packet type breakdown with signal quality per type
+- Activity tab: hourly traffic chart last 24h local time, top nodes leaderboard, SNR health distribution
 - Messages tab: recent channel messages with timestamps and sender names
-- Live/offline status indicator with countdown timer
 
 ### Architecture
 
 ```
-MeshMonitor container
-    └── meshmonitor.db (SQLite, ~230MB after a few days)
-            └── MeshStats API (FastAPI, port 8000) — read-only mount
-                    └── MeshStats UI (nginx, port 8082) — fetches from API
-```
-
-The database is mounted **read-only** into the API container so MeshStats can never interfere with MeshMonitor.
-
-### Prerequisites
-
-- Docker and Docker Compose on your Synology NAS
-- MeshMonitor already running with its data volume at:
-  `/volume1/@docker/volumes/meshmonitor_meshmonitor-data/_data/meshmonitor.db`
-
-### File Structure
-
-```
-meshstats/
-├── docker-compose.yml
-├── backend/
-│   ├── Dockerfile
-│   └── main.py          # FastAPI app
-└── frontend/
-    ├── Dockerfile
-    └── index.html       # Single-file dashboard (vanilla JS + Chart.js)
+MeshMonitor container NAS
+└── meshmonitor.db SQLite read-only mount
+    └── MeshStats API FastAPI port 8000
+        └── MeshStats UI nginx port 8082
 ```
 
 ### Setup
 
-**1. Copy files to your Synology:**
-
-Place the `meshstats` folder at `/volume1/docker/meshstats/`
-
-**2. Build and start containers:**
+Place the meshstats folder at /volume1/docker/meshstats/ on the NAS:
 
 ```bash
 cd /volume1/docker/meshstats
 docker-compose up -d --build
 ```
 
-**3. Access the dashboard:**
-
-```
-http://YOUR_NAS_IP:8082
-```
+Access at http://YOUR_NAS_IP:8082
 
 ### docker-compose.yml
 
 ```yaml
 version: "3.8"
-
 services:
   meshstats-api:
     build: ./backend
@@ -212,89 +328,93 @@ services:
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/stats/summary` | Overall network summary stats |
-| `GET /api/stats/nodes?limit=150` | Node list with packet counts |
-| `GET /api/stats/packets` | Packet type breakdown with signal quality |
-| `GET /api/stats/hourly` | Hourly activity for last 24h (local time) |
-| `GET /api/stats/messages?limit=50` | Recent channel messages |
-| `GET /api/stats/neighbors` | Neighbor relationships |
-| `GET /api/stats/telemetry/{node_id}` | Telemetry history for a specific node |
-| `GET /health` | Health check |
-
-### Updating the Dashboard
-
-To update the frontend after making changes to `index.html`:
-
-```bash
-cd /volume1/docker/meshstats
-docker-compose up -d --build meshstats-ui
-```
-
-To update the API after making changes to `main.py`:
-
-```bash
-cd /volume1/docker/meshstats
-docker-compose up -d --build meshstats-api
-```
+| GET /api/stats/summary | Overall network summary |
+| GET /api/stats/nodes?limit=150 | Node list with packet counts |
+| GET /api/stats/packets | Packet type breakdown |
+| GET /api/stats/hourly | Hourly activity last 24h |
+| GET /api/stats/messages?limit=50 | Recent channel messages |
+| GET /api/stats/neighbors | Neighbor relationships |
+| GET /api/stats/telemetry/{node_id} | Node telemetry history |
+| GET /health | Health check |
 
 ---
 
 ## AZMSH Network
 
-This node participates in the [Arizona Meshtastic Community (AZMSH)](https://azmsh.net) network on the primary AZMSH channel.
+This node participates in the [Arizona Meshtastic Community AZMSH](https://azmsh.net) network.
 
-### Recommended Settings (per AZMSH guidelines)
+### Recommended Settings
 
 | Setting | Value |
 |---|---|
 | Role | Client |
-| Hop Count | 3 |
-| Node Info Broadcast | Every 4–6 hours |
-| Position Broadcast | Every 12–24 hours (stationary node) |
-| Telemetry | Every 4–6 hours |
+| Hop Limit | 3 |
+| Node Info Broadcast | Every 4 to 6 hours |
+| Position Broadcast | Every 12 to 24 hours stationary |
+| Telemetry | Every 4 to 6 hours |
 | MQTT Downlink | Disabled on primary channel |
 
 ---
 
-## Pi Configuration Notes
+## Pi System Configuration
 
-### Static DHCP Reservation
+### Services Running at Boot
 
-The Pi is assigned a static IP via DHCP reservation on the Netgear RS700 router using MAC address `D8:3A:DD:D2:40:9E`.
+| Service | Purpose |
+|---|---|
+| meshtasticd | Meshtastic radio daemon |
+| gpsd | GPS daemon |
+| gpsd.socket | gpsd socket activation |
+| chrony | GPS-disciplined NTP server |
 
-### SSH
-
-SSH is enabled on the Pi. To connect from any machine on the local network:
+Enable all:
 
 ```bash
-ssh mesh@192.168.1.35
+sudo systemctl enable meshtasticd gpsd gpsd.socket chrony
 ```
 
-For convenience, add to your `~/.ssh/config`:
+### SSH Access
+
+```bash
+ssh mesh@YOUR_PI_IP
+```
+
+Add to ~/.ssh/config:
 
 ```
 Host meshpi
-    HostName 192.168.1.35
+    HostName YOUR_PI_IP
     User mesh
 ```
 
-Then simply use `ssh meshpi`.
+### Power Notes
 
-### Backing Up the Pi
+The Pi 5 displays a power supply not capable of 5A warning when powered via PoE. This is cosmetic — the Pi cannot negotiate USB-PD over PoE and logs the warning regardless of actual power delivery.
 
-To create a full image backup (from another Linux machine with the SD card inserted):
+To suppress add usb_max_current_enable=1 to /boot/firmware/config.txt
+
+Verify actual input voltage:
+
+```bash
+vcgencmd pmic_read_adc EXT5V_V
+```
+
+### Backup
 
 ```bash
 sudo dd if=/dev/sdX of=meshpi-backup.img bs=4M status=progress
 ```
 
-Flash back to a new SD card using [Balena Etcher](https://etcher.balena.io/).
+Restore with [Balena Etcher](https://etcher.balena.io/).
 
 ---
 
-## Photos
+## Pending
 
-*(Add photos of your build here)*
+- [ ] Install cavity filter pending delivery
+- [ ] Replace temporary GPIO pins with proper tall stacking header 2x20 11mm or longer
+- [ ] Disable WiFi persistently: nmcli connection modify netplan-wlan0-NETGEAR43 connection.autoconnect no
+- [ ] Pi image backup
 
 ---
 
