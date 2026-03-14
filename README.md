@@ -407,6 +407,13 @@ sudo dd if=/dev/sdX of=meshpi-backup.img bs=4M status=progress
 
 Restore with [Balena Etcher](https://etcher.balena.io/).
 
+## Photos
+
+![Node exterior — enclosure, Slinkdsco antenna, and solar panel mounted on post](photos/node-exterior.jpg)
+
+![Node interior — Nermak 12V 10Ah LiFePO4, Pi 5 with MeshAdv hat, and PoE Texas injector](photos/node-interior.jpg)
+
+
 ---
 
 ## Pending
